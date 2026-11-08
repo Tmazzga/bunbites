@@ -1,0 +1,15 @@
+{
+  "name": "Bun Bites",
+  "short_name": "Bun Bites",
+  "description": "A gentle food & symptom tracker with a bunny friend",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fff4f7",
+  "theme_color": "#fde4ec",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
