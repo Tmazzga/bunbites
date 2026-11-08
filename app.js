@@ -834,15 +834,39 @@ async function startScanner(){
     if(sheetState.tab==="scan") drawAdd();
   }
 }
+// Phone photos are huge and barcodes are often small or tilted: try the original, then resized,
+// center-zoomed, rotated and high-contrast versions until one decodes.
+async function photoVariants(file){
+  const out = [file];
+  try{
+    const img = await new Promise((res, rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src = URL.createObjectURL(file); });
+    const mk = (w, h, draw) => new Promise(res => { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d"); draw(g, c); c.toBlob(b => res(b ? new File([b], "v.jpg", {type:"image/jpeg"}) : null), "image/jpeg", 0.92); });
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const fit = (max) => { const k = Math.min(1, max/Math.max(W,H)); return [Math.round(W*k), Math.round(H*k)]; };
+    const [w1,h1] = fit(1600);
+    out.push(await mk(w1, h1, g => g.drawImage(img, 0, 0, w1, h1)));
+    for(const z of [0.6, 0.4]){ // zoom into the middle
+      const cw = W*z, ch = H*z, [w2,h2] = [Math.round(Math.min(1400, cw)), Math.round(Math.min(1400, cw)*ch/cw)];
+      out.push(await mk(w2, h2, g => g.drawImage(img, (W-cw)/2, (H-ch)/2, cw, ch, 0, 0, w2, h2)));
+    }
+    out.push(await mk(h1, w1, g => { g.translate(h1/2, w1/2); g.rotate(Math.PI/2); g.drawImage(img, -w1/2, -h1/2, w1, h1); }));
+    out.push(await mk(w1, h1, g => { g.filter = "grayscale(1) contrast(1.8)"; g.drawImage(img, 0, 0, w1, h1); }));
+    URL.revokeObjectURL(img.src);
+  }catch(_){}
+  return out.filter(Boolean);
+}
 async function scanPhoto(file){
   sheetState.scanMsg = "Reading the barcode… 🔎"; drawAdd();
   try{
     await loadScanLib();
     const F = window.Html5QrcodeSupportedFormats;
     const reader = new Html5Qrcode("scanfile", {formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128].filter(x=>x!==undefined), verbose:false, experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
-    const res = await reader.scanFileV2(file, false);
+    let code = null;
+    for(const variant of await photoVariants(file)){
+      try{ const res = await reader.scanFileV2(variant, false); code = res && (res.decodedText || res); if(code) break; }catch(_){}
+    }
     try{ reader.clear(); }catch(_){}
-    const code = res && (res.decodedText || res);
+    if(!code) throw new Error("no barcode");
     sheetState.scanMsg = ""; lookupBarcode(String(code));
   }catch(e){
     sheetState.scanMsg = navigator.onLine===false && !window.Html5Qrcode ? "The scanner needs internet the first time. Type the number below instead."
