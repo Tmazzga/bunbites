@@ -353,6 +353,7 @@ function renderToday(){
   <button class="flarepill ${s.flare?"on":""}" data-a="flare" aria-pressed="${s.flare}">
     <span>${s.flare?"🌙":"🌤️"}</span><span style="flex:1;text-align:left"><b>Flare-day mode</b> <span class="small">${s.flare?"on: gentle foods only":"off"}</span></span><span class="switch ${s.flare?"on":""}"></span>
   </button>
+  ${s.flare && isToday ? gentleCard() : ""}
   <div class="card">${totalsHTML}
     ${(caution||dairy)?`<div class="chips" style="margin-top:12px;justify-content:center">${caution?`<span class="b C">${caution} caution food${caution>1?"s":""}</span>`:""}${dairy?`<span class="b milk">${dairy} with dairy</span>`:""}</div>`:""}
   </div>
@@ -378,6 +379,36 @@ function renderToday(){
 }
 function sevInk(n){ return n<=2?"#3f9a62":n<=5?"#c7841f":"#d0475a"; }
 function sevColor(n){ return n<=1?"#9fd3b0":n<=3?"#cfe3a6":n<=5?"#f6cf8c":n<=7?"#f2a07f":"#e2687a"; }
+// Flare-day suggestions: her own safe foods first, then gentle foods she eats a lot, then soothing staples.
+let gentlePicks = [], gentleMeals = [];
+function computeGentle(){
+  const gentle = f => f && markOf(f.name)!=="trigger" && (markOf(f.name)==="safe" || f.ic==="F");
+  const seen = new Set(), picks = [];
+  const add = f => { const k = nameKey(f.name); if(!seen.has(k) && gentle(f) && picks.length < 6){ seen.add(k); picks.push(f); } };
+  const byName = n => allFoods().find(f=>nameKey(f.name)===n) || (()=>{ const e = S.entries.slice().reverse().find(x=>nameKey(x.name)===n); return e ? entryAsFood(e) : null; })();
+  Object.entries(S.marks).filter(([,m])=>m==="safe").forEach(([n])=>{ const f = byName(n); if(f) add(f); });
+  const since = addDays(today(), -60), freq = {};
+  S.entries.filter(e=>e.date>=since).forEach(e=>{ const k=nameKey(e.name); freq[k]=(freq[k]||0)+1; });
+  Object.entries(freq).sort((a,b)=>b[1]-a[1]).forEach(([n,c])=>{ if(c>=2){ const f = byName(n); if(f) add(f); } });
+  // soothing staples (skip dairy, she's dairy-sensitive): rotate through food groups, at most one drink
+  const order = ["Grains & bread","Protein & nuts","Veggies & beans","Fruit","Meals & takeout","Snacks & sweets","Drinks"];
+  const pools = order.map(c => BUILTIN.filter(f=>f.cat===c && f.soothe && f.ic==="F" && !f.dairy && f.name!=="Water"));
+  const offset = new Date().getDate();   // vary the picks a little day to day
+  pools.forEach(p => p.push(...p.splice(0, offset % Math.max(1,p.length))));
+  let drinks = picks.filter(f=>(f.cat||"")==="Drinks").length;
+  for(let round=0; picks.length<6 && round<6; round++) pools.forEach(p => { const f = p[round]; if(!f || picks.length>=6) return; if(f.cat==="Drinks"){ if(drinks>=1) return; drinks++; } add(f); });
+  gentlePicks = picks;
+  gentleMeals = (S.meals||[]).filter(m => m.items.length && m.items.every(it => gentle(it))).slice(0,3);
+}
+function gentleCard(){
+  computeGentle();
+  if(!gentlePicks.length && !gentleMeals.length) return "";
+  const meal = MEALS.find(m=>m[0]===guessMeal());
+  return `<div class="card gentle"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="margin:0">💜 Gentle picks for today</h3><span class="small muted" style="font-weight:800">tap to add to ${meal[1].toLowerCase()}</span></div>
+    <div class="chips" style="margin-top:10px">${gentlePicks.map((f,i)=>`<button class="chip gpick" data-a="gpick" data-i="${i}">＋ ${esc(f.name)}${markOf(f.name)==="safe"?" 💚":f.soothe?" 💜":""}</button>`).join("")}</div>
+    ${gentleMeals.length?`<div class="small muted" style="font-weight:800;margin:12px 0 6px">Your gentle meals</div><div class="chips">${gentleMeals.map(m=>`<button class="chip gpick" data-a="gmeal" data-id="${m.id}">🍱 ${esc(m.name)}</button>`).join("")}</div>`:""}
+    <p class="small muted" style="margin:10px 0 0">💚 your safe foods · 💜 often soothing. Picked from bladder-friendly foods only, never your triggers.</p></div>`;
+}
 function backupDue(){
   if(loggedDays().size < 3) return false;
   const last = Math.max(S.lastBackup||0, S.backupSnooze||0);
@@ -1154,6 +1185,13 @@ document.addEventListener("click", async ev => {
     case "startscan": sheetState.scanning=true; sheetState.scanMsg=""; drawAdd(); break;
     case "stopscan": stopScanner(); sheetState.scanning=false; sheetState.scanSlow=false; drawAdd(); break;
     case "lookup": { const v=$("#bcode").value; if(v.trim()) lookupBarcode(v); break; }
+    case "gpick": { const f = gentlePicks[+el.dataset.i]; if(!f) return; const meal = guessMeal();
+      const g = logFood(f, 1, meal, nowTime()); const id = S.entries[S.entries.length-1].id; celebrate(g);
+      toast(`Added ${f.name} to ${MEALS.find(m=>m[0]===meal)[1].toLowerCase()}${g?` · +${g} 🥕`:""}`, ()=>{ S.entries = S.entries.filter(e=>e.id!==id); save(); render(); }); break; }
+    case "gmeal": { const m = (S.meals||[]).find(x=>x.id===el.dataset.id); if(!m) return; const meal = guessMeal(), before = S.entries.length; let g = 0;
+      m.items.forEach(it=>{ g += logFood(Object.assign({}, it, {key: it.key || it.foodKey}), it.servings, meal, nowTime()); });
+      const ids = S.entries.slice(before).map(e=>e.id); celebrate(g);
+      toast(`Added ${m.name}${g?` · +${g} 🥕`:""}`, ()=>{ S.entries = S.entries.filter(e=>!ids.includes(e.id)); save(); render(); }); break; }
     case "feelgoodquick": { const c={id:uid(),date:today(),time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);
       const g=addXP(XP_CHECK); save(); celebrate(g); toast(`Yay! Good day logged${g?` · +${g} 🥕`:""}`); break; }
     case "feelgood": { const c={id:uid(),date:day,time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);

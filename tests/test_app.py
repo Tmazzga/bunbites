@@ -152,3 +152,20 @@ def test_evening_nudge(page):
     assert page.locator('[data-a="feelgoodquick"]').count() == 1
     page.click('[data-a="feelgoodquick"]')
     assert page.locator('[data-a="feelgoodquick"]').count() == 0
+
+
+def test_flare_day_gentle_picks(page):
+    start(page)
+    # she marks rice as safe and coffee as a trigger; coffee must never be suggested
+    page.evaluate("S.marks['white rice']='safe'; S.marks['coffee']='trigger'; save(); render();")
+    page.click('[data-a="flare"]')
+    picks = page.locator('[data-a="gpick"]').all_inner_texts()
+    assert picks and "White rice" in picks[0], picks
+    assert not any("Coffee" in p for p in picks)
+    assert not any(n in " ".join(picks) for n in ["Milk", "Ice cream", "Cottage", "Ricotta"]), "dairy staples should be skipped"
+    page.click('[data-a="gpick"] >> nth=0')
+    assert state(page)["entries"][0]["name"] == "White rice"
+    page.click(".toast .undo")
+    assert state(page)["entries"] == []
+    page.click('[data-a="flare"]')
+    assert page.locator('[data-a="gpick"]').count() == 0

@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION when you change files so phones pick up the update.
-const VERSION = "bunbites-v12";
+const VERSION = "bunbites-v13";
 const SCANNER = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
 const SHELL = ["./", "index.html", "app.js", "foods.js", "manifest.webmanifest", "icons/icon-192.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", e => {
