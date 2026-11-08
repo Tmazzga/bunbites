@@ -799,8 +799,11 @@ let scanner = null, scanLibLoading = null;
 function scanHTML(){
   const st = sheetState;
   if(st.scanResult) return customFormHTML(st.customDraft);
-  return `<div class="note" style="margin-bottom:10px">Point the camera at a barcode. Product info comes from Open Food Facts (needs internet). Always double-check against the label!</div>
-    ${st.scanning?`<div id="reader"></div><div class="spacer"></div><button class="btn soft" style="width:100%" data-a="stopscan">Stop camera</button>`:`<button class="btn" style="width:100%" data-a="startscan">📷 Start scanning</button>`}
+  return `<div class="note" style="margin-bottom:10px">Product info comes from Open Food Facts (needs internet). Always double-check against the label!</div>
+    <button class="btn" style="width:100%;margin-bottom:10px" data-a="photoscan">📸 Snap a photo of the barcode</button>
+    <input type="file" id="bcphoto" accept="image/*" capture="environment" style="display:none"><div id="scanfile" style="display:none"></div>
+    <div class="small muted center" style="margin:-2px 0 10px">Best for shiny or crinkly bags. Fill the photo with the barcode, in good light.</div>
+    ${st.scanning?`<div id="reader"></div><div class="small muted center" style="margin-top:6px">${st.scanSlow?"Having trouble? Try the photo button above, or type the number below.":"Hold it flat and steady, about 6 inches away"}</div><div class="spacer"></div><button class="btn soft" style="width:100%" data-a="stopscan">Stop camera</button>`:`<button class="btn soft" style="width:100%" data-a="startscan">🎥 Live scan</button>`}
     <div class="spacer"></div><div class="card"><label class="field" style="margin:0"><span>Or type the barcode number</span>
     <div class="row"><input class="inp" id="bcode" inputmode="numeric" placeholder="e.g. 041196910759"><button class="btn sm" data-a="lookup">Look up</button></div></label></div>
     ${st.scanMsg?`<div class="note">${st.scanMsg}</div>`:""}`;
@@ -819,13 +822,32 @@ async function startScanner(){
     await loadScanLib();
     if(!$("#reader") || scanner) return;
     const F = window.Html5QrcodeSupportedFormats;
-    scanner = new Html5Qrcode("reader", {formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E], verbose:false});
-    await scanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:260,height:140}, aspectRatio:1.4},
+    scanner = new Html5Qrcode("reader", {formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128].filter(x=>x!==undefined), verbose:false, experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
+    const st0 = sheetState;
+    await scanner.start({facingMode:"environment"}, {fps:15, qrbox:(w,h)=>({width:Math.floor(w*0.9), height:Math.floor(Math.min(h*0.6, w*0.5))}), aspectRatio:1.4,
+        videoConstraints:{facingMode:"environment", width:{ideal:1920}, height:{ideal:1080}, advanced:[{focusMode:"continuous"}]}},
       code => { stopScanner(); sheetState.scanning=false; lookupBarcode(code); }, ()=>{});
+    setTimeout(()=>{ if(sheetState===st0 && st0.scanning && scanner && !st0.scanSlow){ st0.scanSlow = true; const n=document.querySelector("#reader + .small"); if(n) n.textContent="Having trouble? Try the photo button above, or type the number below."; } }, 12000);
   }catch(e){
     scanner = null; sheetState.scanning = false;
     sheetState.scanMsg = "Couldn't start the camera. Check that camera access is allowed for this app, that you're online, or type the barcode number instead.";
     if(sheetState.tab==="scan") drawAdd();
+  }
+}
+async function scanPhoto(file){
+  sheetState.scanMsg = "Reading the barcode… 🔎"; drawAdd();
+  try{
+    await loadScanLib();
+    const F = window.Html5QrcodeSupportedFormats;
+    const reader = new Html5Qrcode("scanfile", {formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128].filter(x=>x!==undefined), verbose:false, experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
+    const res = await reader.scanFileV2(file, false);
+    try{ reader.clear(); }catch(_){}
+    const code = res && (res.decodedText || res);
+    sheetState.scanMsg = ""; lookupBarcode(String(code));
+  }catch(e){
+    sheetState.scanMsg = navigator.onLine===false && !window.Html5Qrcode ? "The scanner needs internet the first time. Type the number below instead."
+      : "Couldn't read a barcode in that photo. Try again closer, with the barcode flat and filling most of the picture, or type the number below.";
+    if(sheetState && sheetState.tab==="scan") drawAdd();
   }
 }
 function stopScanner(){ if(scanner){ const s=scanner; scanner=null; s.stop().then(()=>s.clear()).catch(()=>{}); } }
@@ -1079,8 +1101,9 @@ document.addEventListener("click", async ev => {
     case "offsearch": offSearch(); break;
     case "offpick": { const p = sheetState.off && sheetState.off.items[+el.dataset.i]; if(!p) return; sheetState.customDraft = offToDraft(p); sheetState.tab = "custom"; drawAdd(); toast("Check the numbers, then save"); break; }
     case "scancustom": sheetState.tab="custom"; sheetState.scanMsg=""; drawAdd(); break;
+    case "photoscan": stopScanner(); sheetState.scanning=false; $("#bcphoto").click(); break;
     case "startscan": sheetState.scanning=true; sheetState.scanMsg=""; drawAdd(); break;
-    case "stopscan": stopScanner(); sheetState.scanning=false; drawAdd(); break;
+    case "stopscan": stopScanner(); sheetState.scanning=false; sheetState.scanSlow=false; drawAdd(); break;
     case "lookup": { const v=$("#bcode").value; if(v.trim()) lookupBarcode(v); break; }
     case "feelgood": { const c={id:uid(),date:day,time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);
       const g = day===today()?addXP(XP_CHECK):0; save(); closeLayer(); celebrate(g); toast(`Yay! Good day logged${g?` · +${g} 🥕`:""}`); break; }
@@ -1142,6 +1165,7 @@ document.addEventListener("input", ev => {
 });
 document.addEventListener("change", ev => {
   const t = ev.target;
+  if(t.id==="bcphoto" && t.files[0]) scanPhoto(t.files[0]);
   if(t.id==="importfile2" && t.files[0]){ const r=new FileReader(); r.onload=()=>importBackup(r.result); r.readAsText(t.files[0]); }
   if(t.id==="servc" && sheetState && sheetState.pick){ const v=parseFloat(t.value); if(v>0){ sheetState.servings=v; sheetState.meal=$("#pmeal").value; sheetState.time=$("#ptime").value; drawPortion(); } }
   if(t.id==="pmeal" && sheetState){ sheetState.meal=t.value; if(sheetState.pick){ sheetState.time=$("#ptime").value; const cv=parseFloat($("#servc").value); if(cv>0) sheetState.servings=cv; drawPortion(); } }
