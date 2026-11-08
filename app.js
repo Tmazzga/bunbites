@@ -706,6 +706,7 @@ function resultsHTML(){
   }
   return html || `<div class="empty">No matches. Try Custom.</div>`;
 }
+const offSearchCache = {};
 function offName(p){ return [p.brands && p.brands.split(",")[0].trim(), p.product_name].filter(Boolean).join(" ") || "Food"; }
 async function offSearch(){
   const q = sheetState.q.trim(); if(!q) return;
@@ -713,12 +714,14 @@ async function offSearch(){
   try{
     const url = "https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=20&search_terms=" + encodeURIComponent(q) +
       "&fields=code,product_name,brands,serving_size,serving_quantity,nutriments,ingredients_text,ingredients_text_en,allergens_tags";
-    const r = await fetch(url); if(!r.ok) throw new Error(r.status);
+    if(offSearchCache[q]){ sheetState.off = {q, items: offSearchCache[q]}; if($("#results")) $("#results").innerHTML = resultsHTML(); return; }
+    const r = await fetchT(url, 9000); if(!r.ok) throw new Error(r.status);
     const j = await r.json();
     const items = (j.products||[]).filter(p=>p.product_name && p.nutriments && (p.nutriments["energy-kcal_100g"]!==undefined || p.nutriments["energy-kcal_serving"]!==undefined)).slice(0,12);
+    offSearchCache[q] = items;
     if(sheetState && sheetState.off && sheetState.off.q===q){ sheetState.off = {q, items}; }
   }catch(e){
-    if(sheetState && sheetState.off) sheetState.off = {q, items:[], err: navigator.onLine===false ? "You're offline. Online search needs internet." : "Online search didn't respond. Try again in a minute, or add it yourself with ✏️."};
+    if(sheetState && sheetState.off) sheetState.off = {q, items:[], err: navigator.onLine===false ? "You're offline. Online search needs internet." : (e && e.name==="AbortError" ? "Online search is taking too long right now. Try again in a bit, or add it yourself with ✏️." : "Online search didn't respond. Try again in a minute, or add it yourself with ✏️.")};
   }
   if(sheetState && sheetState.tab==="search" && $("#results")) $("#results").innerHTML = resultsHTML();
 }
@@ -886,11 +889,14 @@ async function lookupBarcode(code){
 async function lookupBarcodeInner(code){
   const existing = S.custom.find(c=>c.barcode===code);
   if(existing){ sheetState.pick = existing; sheetState.servings = 1; drawAdd(); toast("Found in your foods!"); return; }
+  const cached = offCacheGet(code);
+  if(cached){ sheetState.customDraft = offToDraft(cached, code); sheetState.scanResult = true; sheetState.scanMsg = ""; drawAdd(); toast("Found it! Check the numbers"); return; }
   sheetState.scanMsg = "Looking it up… 🔎"; drawAdd();
   try{
-    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,serving_size,serving_quantity,nutriments,ingredients_text,ingredients_text_en,allergens_tags,traces_tags`);
+    const r = await fetchT(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,serving_size,serving_quantity,nutriments,ingredients_text,ingredients_text_en,allergens_tags,traces_tags`, 8000);
     const j = await r.json();
     if(j.status!==1 || !j.product) throw new Error("nf");
+    offCachePut(code, j.product);
     sheetState.customDraft = offToDraft(j.product, code);
     sheetState.scanResult = true; sheetState.scanMsg = "";
     drawAdd();
@@ -902,6 +908,10 @@ async function lookupBarcodeInner(code){
   }
 }
 
+function fetchT(url, ms=8000){ const c = new AbortController(); const t = setTimeout(()=>c.abort(), ms); return fetch(url, {signal:c.signal}).finally(()=>clearTimeout(t)); }
+const OFF_CACHE_KEY = "bunbites.offcache";
+function offCacheGet(code){ try{ return (JSON.parse(localStorage.getItem(OFF_CACHE_KEY)||"{}"))[code] || null; }catch(e){ return null; } }
+function offCachePut(code, product){ try{ const m = JSON.parse(localStorage.getItem(OFF_CACHE_KEY)||"{}"); m[code] = product; const ks = Object.keys(m); if(ks.length>150) ks.slice(0, ks.length-150).forEach(k=>delete m[k]); localStorage.setItem(OFF_CACHE_KEY, JSON.stringify(m)); }catch(e){} }
 function offToDraft(p, code){
   const n = p.nutriments||{};
   const sq = parseFloat(p.serving_quantity);
@@ -1220,6 +1230,8 @@ document.addEventListener("keydown", ev => {
 setInterval(() => { const t=today(); if(t!==lastToday){ const follow = day===lastToday; lastToday=t; if(follow) day=t; if(!$("#layer").innerHTML) render(); } }, 60000);
 document.addEventListener("visibilitychange", () => { if(document.visibilityState==="visible"){ const t=today(); if(t!==lastToday){ if(day===lastToday) day=t; lastToday=t; } render(); } });
 
+// download the scanner library in the background so the first scan opens instantly
+(window.requestIdleCallback || (f=>setTimeout(f, 2500)))(() => { if(navigator.onLine !== false) loadScanLib().catch(()=>{}); });
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(()=>{}));
 }
