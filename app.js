@@ -360,7 +360,7 @@ function renderToday(){
     return `<div class="card meal">
       <div class="meal-h"><h3><span class="mi">${i}</span>${l}</h3>
         <span class="meal-r">${list.length?`<span class="kc">${fmtNum(kc)} cal</span>`:""}${list.length>1?`<button class="tbtn" data-a="savemealask" data-meal="${k}" aria-label="Save as meal">🍱</button>`:""}<button class="tbtn plus" data-a="add" data-meal="${k}" aria-label="Add to ${l}">＋</button></span></div>
-      ${list.length ? list.map(e=>`<button class="item" data-a="entry" data-id="${e.id}"><span class="dot ${effectiveIC(e.ic,e.name)}"></span><span class="t"><b>${esc(e.name)}</b><span class="small muted">${servingsLabel(e.servings)} × ${esc(e.serving)}${e.dairy?" · 🥛":""}${markOf(e.name)==="trigger"?" · 🚩 my trigger":""}</span></span><span class="k">${fmtNum(e.kcal*e.servings)}</span></button>`).join("")
+      ${list.length ? list.map(e=>`<div class="swipe" data-del="entry" data-id="${e.id}"><button class="item" data-a="entry" data-id="${e.id}" aria-label="Edit ${esc(e.name)}"><span class="dot ${effectiveIC(e.ic,e.name)}"></span><span class="t"><b>${esc(e.name)}</b><span class="small muted">${servingsLabel(e.servings)} × ${esc(e.serving)}${e.dairy?" · 🥛":""}${markOf(e.name)==="trigger"?" · 🚩 my trigger":""}</span></span><span class="k">${fmtNum(e.kcal*e.servings)}</span><span class="chev">›</span></button></div>`).join("")
         : `<div class="emptyrow"><button class="addslot" data-a="add" data-meal="${k}">＋ Add ${l.toLowerCase()}</button>${yest.length?`<button class="addslot alt" data-a="repeat" data-meal="${k}">↻ Same as yesterday</button>`:""}</div>`}
     </div>`;
   }).join("")}
@@ -368,8 +368,8 @@ function renderToday(){
     <div class="meal-h"><h3><span class="mi">💭</span>How I felt</h3><span class="meal-r"><button class="tbtn plus" data-a="checkin" aria-label="Add check-in">＋</button></span></div>
     ${chks.length ? chks.map(c=>{
       const bl = Math.max(c.pain,c.urgency,c.frequency), gu = Math.max(c.bloating,c.cramps);
-      return `<button class="item" data-a="editcheck" data-id="${c.id}"><span style="font-size:24px">${feelEmoji(Math.max(bl,gu))}</span><span class="t"><b>${fmtTime(c.time)}</b><span class="small muted">Bladder ${bl}/10 · Tummy ${gu}/10${(c.tags||[]).length?" · "+c.tags.map(t=>(CTX_TAGS.find(x=>x[0]===t)||[])[2]||"").join(""):""}${c.note?" · "+esc(c.note):""}</span></span>
-        <span class="sev"><i style="background:${sevColor(bl)}"></i><i style="background:${sevColor(gu)}"></i></span></button>`;
+      return `<div class="swipe" data-del="check" data-id="${c.id}"><button class="item" data-a="editcheck" data-id="${c.id}" aria-label="Edit check-in"><span style="font-size:24px">${feelEmoji(Math.max(bl,gu))}</span><span class="t"><b>${fmtTime(c.time)}</b><span class="small muted">Bladder ${bl}/10 · Tummy ${gu}/10${(c.tags||[]).length?" · "+c.tags.map(t=>(CTX_TAGS.find(x=>x[0]===t)||[])[2]||"").join(""):""}${c.note?" · "+esc(c.note):""}</span></span>
+        <span class="sev"><i style="background:${sevColor(bl)}"></i><i style="background:${sevColor(gu)}"></i></span><span class="chev">›</span></button></div>`;
     }).join("") : `<div class="emptyrow"><button class="addslot" data-a="checkin">Log how you feel, even on good days 💗</button></div>`}
   </div>`;
 }
@@ -988,7 +988,7 @@ function openFoodInfo(key){
       <p class="small muted" style="margin-bottom:0">List rating: ${IC_LABEL[f.ic]}</p></div>
     <div class="row">
       <button class="btn soft" data-a="fav" data-key="${esc(f.key)}">${S.favorites.includes(f.key)?"★ Saved":"☆ Save"}</button>
-      ${f.src==="custom"?`<button class="btn danger" data-a="delcustom" data-key="${esc(f.key)}">Delete</button>`:""}
+      ${f.src==="custom"?`<button class="btn soft" data-a="editcustom" data-key="${esc(f.key)}">✏️ Edit</button><button class="btn danger" data-a="delcustom" data-key="${esc(f.key)}">Delete</button>`:""}
       <button class="btn" data-a="logfrominfo" data-key="${esc(f.key)}">Log it</button>
     </div>`);
 }
@@ -1057,6 +1057,7 @@ function importBackup(text){
 /* ---------------- events ---------------- */
 document.addEventListener("click", async ev => {
   const el = ev.target.closest("[data-a]"); if(!el) return;
+  if(Date.now() - swipeJustHappened < 400 && el.closest(".swipe")) return;
   const a = el.dataset.a;
   if(a==="bg"){ if(ev.target===el){ if(sheetState&&sheetState.mode==="settings") { saveSettingsFields(); render(); } closeLayer(); } return; }
   switch(a){
@@ -1082,7 +1083,9 @@ document.addEventListener("click", async ev => {
       sheetState.meal = $("#pmeal").value; const time = $("#ptime").value || nowTime();
       const g = logFood(sheetState.pick, sheetState.servings, sheetState.meal, time);
       const nm = sheetState.pick.name; sheetState.pick=null; sheetState.q=""; drawAdd(); celebrate(g);
-      toast(`Added ${nm}${g?` · +${g} 🥕`:""}`); break;
+      toast(`Added ${nm}${g?` · +${g} 🥕`:""}`);
+      if(!S.tipEdit){ S.tipEdit = true; save(); setTimeout(()=>toast("Tip: tap a food to edit it, or swipe it left to delete"), 2400); }
+      break;
     }
     case "fav": { const k=el.dataset.key; const i=S.favorites.indexOf(k);
       if(i>=0) S.favorites.splice(i,1); else {
@@ -1097,6 +1100,9 @@ document.addEventListener("click", async ev => {
     case "cdairy": { const d=readCustomForm(); const g=classifyText(d.name); d.dairy = !(d.dairy ?? g.dairy); d.icTouched=true; patchCustom(); break; }
     case "csave": {
       const d = readCustomForm(); if(!d.name){ toast("Give it a name"); return; }
+      if(d.editKey){ const f = S.custom.find(c=>c.key===d.editKey); if(f){ const g0 = classifyText(d.name+" "+(d.ingredients||""));
+          Object.assign(f, {name:d.name, serving:d.serving, kcal:d.kcal, p:d.p, c:d.c, f:d.f, ic:d.ic||g0.ic, dairy:d.dairy ?? g0.dairy}); save(); }
+        closeLayer(); render(); toast("Food updated. Past logs keep their old numbers"); return; }
       const g = classifyText(d.name + " " + (d.ingredients||""));
       const food = {key:"c:"+uid(), name:d.name, serving:d.serving, kcal:d.kcal, p:d.p, c:d.c, f:d.f, ic:d.ic||g.ic, dairy: d.dairy ?? g.dairy, src:"custom"};
       if(d.barcode) food.barcode = d.barcode;
@@ -1107,6 +1113,9 @@ document.addEventListener("click", async ev => {
       else { sheetState.customDraft=null; sheetState.scanResult=false; sheetState.tab="saved"; drawAdd(); toast("Saved to your foods ⭐"); }
       break;
     }
+    case "editcustom": { const f = S.custom.find(c=>c.key===el.dataset.key); if(!f) return;
+      sheetState = {mode:"customonly", tab:"custom", meal:guessMeal(), customDraft:{name:f.name, serving:f.serving, kcal:f.kcal, p:f.p, c:f.c, f:f.f, ic:f.ic, dairy:f.dairy, icTouched:true, barcode:f.barcode, ingredients:f.ingr, editKey:f.key}};
+      openSheet(`<div class="sheet-h"><h2>Edit food</h2><button class="btn ghost sm" data-a="close">✕</button></div>${customFormHTML(sheetState.customDraft)}`); break; }
     case "customnew": sheetState = {mode:"customonly", tab:"custom", meal:guessMeal(), customDraft:{}}; openSheet(`<div class="sheet-h"><h2>New food</h2><button class="btn ghost sm" data-a="close">✕</button></div>${customFormHTML({})}`); break;
     case "ctag": { const t=el.dataset.tag, tg=sheetState.c.tags; const i=tg.indexOf(t); if(i>=0) tg.splice(i,1); else tg.push(t); el.classList.toggle("on", i<0); break; }
     case "snoozebk": S.backupSnooze = Date.now() - 11*864e5; save(); render(); toast("I'll remind you in a few days"); break;
@@ -1209,6 +1218,33 @@ document.addEventListener("change", ev => {
 document.addEventListener("focusin", ev => { if(ev.target.matches("input:not([type=range]),textarea,select")) document.body.classList.add("typing"); });
 document.addEventListener("focusout", () => setTimeout(()=>{ if(!document.activeElement || !document.activeElement.matches("input:not([type=range]),textarea,select")) document.body.classList.remove("typing"); }, 50));
 document.addEventListener("keydown", ev => { if(ev.key==="Escape" && $("#layer").innerHTML){ if(sheetState&&sheetState.mode==="settings") saveSettingsFields(); closeLayer(); render(); } });
+(() => { // swipe a logged food / check-in left to delete
+  let st = null;
+  document.addEventListener("touchstart", ev => {
+    const w = ev.target.closest(".swipe"); if(!w || $("#layer").innerHTML) return;
+    const t = ev.touches[0]; st = {w, btn: w.querySelector(".item"), x0: t.clientX, y0: t.clientY, dx: 0, mode: null};
+  }, {passive:true});
+  document.addEventListener("touchmove", ev => {
+    if(!st) return; const t = ev.touches[0], dx = t.clientX - st.x0, dy = t.clientY - st.y0;
+    if(!st.mode){ if(Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)*1.3) st.mode = "h"; else if(Math.abs(dy) > 10) st.mode = "v"; }
+    if(st.mode !== "h") return;
+    st.dx = Math.min(0, dx); st.btn.style.transition = "none"; st.btn.style.transform = `translateX(${st.dx}px)`;
+  }, {passive:true});
+  document.addEventListener("touchend", () => {
+    if(!st) return; const s0 = st; st = null; if(s0.mode !== "h") return;
+    swipeJustHappened = Date.now();
+    s0.btn.style.transition = "transform .2s";
+    if(s0.dx < -90){
+      s0.btn.style.transform = "translateX(-110%)";
+      setTimeout(() => {
+        const id = s0.w.dataset.id;
+        if(s0.w.dataset.del === "entry"){ const e = S.entries.find(x=>x.id===id); if(!e) return; S.entries = S.entries.filter(x=>x.id!==id); save(); render(); toast(`${e.name} removed`, ()=>{ S.entries.push(e); save(); render(); }); }
+        else { const c = S.checkins.find(x=>x.id===id); if(!c) return; S.checkins = S.checkins.filter(x=>x.id!==id); save(); render(); toast("Check-in deleted", ()=>{ S.checkins.push(c); save(); render(); }); }
+      }, 180);
+    } else s0.btn.style.transform = "";
+  });
+})();
+let swipeJustHappened = 0;
 (() => { // swipe a sheet down to close
   let y0 = null, sh = null, dy = 0;
   document.addEventListener("touchstart", ev => {

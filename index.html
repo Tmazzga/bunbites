@@ -311,6 +311,11 @@ nav button.on::after{content:"";position:absolute;bottom:-2px;left:50%;width:18p
 .sheet-h .star{font-size:24px}
 
 /* ---- v5 fixes ---- */
+.swipe{position:relative;border-radius:12px;background:var(--bad);overflow:hidden}
+.swipe::after{content:"Delete";position:absolute;right:18px;top:50%;transform:translateY(-50%);color:#fff;font-weight:800;font-size:14px}
+.swipe .item{position:relative;z-index:1;background:var(--card);touch-action:pan-y}
+.swipe + .swipe .item{border-top:1px dashed var(--line)}
+.chev{color:var(--ink-2);font-size:22px;font-weight:700;opacity:.5;margin-left:-2px}
 :root{--btn:#dd6590}
 [data-theme=dark]{--btn:#e0608c}
 .btn{background:var(--btn);box-shadow:0 4px 0 #b9466f}
