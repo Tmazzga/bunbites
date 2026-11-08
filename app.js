@@ -347,6 +347,9 @@ function renderToday(){
     <button class="btn big" data-a="add"><span>🥕</span>Add food</button>
     <button class="btn soft big" data-a="checkin"><span>💭</span>How I feel</button>
   </div>
+  ${isToday && new Date().getHours()>=17 && !S.checkins.some(c=>c.date===today()) ? `<div class="card nudge" style="border-color:var(--pink)">
+    <span style="font-size:28px">💭</span><div style="flex:1"><b>How was today?</b><div class="small muted">One quick check-in helps ${nm} learn what agrees with you.</div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm" data-a="feelgoodquick">😊 Good day</button><button class="btn soft sm" data-a="checkin">Log it</button></div></div>` : ""}
   <button class="flarepill ${s.flare?"on":""}" data-a="flare" aria-pressed="${s.flare}">
     <span>${s.flare?"🌙":"🌤️"}</span><span style="flex:1;text-align:left"><b>Flare-day mode</b> <span class="small">${s.flare?"on: gentle foods only":"off"}</span></span><span class="switch ${s.flare?"on":""}"></span>
   </button>
@@ -569,6 +572,9 @@ function renderInsights(){
     <div class="tile"><small>Bladder</small><b style="color:${avgBl===null?"inherit":sevInk(Math.round(avgBl))}">${avgBl===null?"–":avgBl.toFixed(1)}</b><i>${trend(avgBl,pBl)}</i></div>
     <div class="tile"><small>Tummy</small><b style="color:${avgGu===null?"inherit":sevInk(Math.round(avgGu))}">${avgGu===null?"–":avgGu.toFixed(1)}</b><i>${trend(avgGu,pGu)}</i></div>
   </div>
+  ${A.days < 30 ? `<div class="card" style="padding:12px 16px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>📈 Learning your patterns</b><span class="small muted" style="font-weight:800">${A.days} / 30 days</span></div>
+    <div class="xpbar"><i style="width:${Math.round(A.days/30*100)}%"></i></div>
+    <div class="small muted">${A.days<5?"Patterns start showing after about 5 days.":A.days<15?"Early patterns showing. They get sharper every day you check in.":"Getting close! Around 30 days, results are much more reliable."} A day counts when you log food <i>and</i> how you felt.</div></div>` : ""}
   <div class="card">
     <h2>🔎 Possible triggers</h2>
     ${needMore ? `<div class="empty">Keep logging meals and a "How I feel" or two each day (good days too!). After about a week, patterns show up here.<br><br><b>${A.days}</b> of 5 days with check-ins so far.</div>` : `
@@ -743,13 +749,13 @@ function drawPortion(){
       <h3>How much? <span class="muted small">(1 serving = ${esc(f.serving)})</span></h3>
       <div class="chips" style="margin:10px 0">${opts.map(o=>`<button class="chip ${n===o?"on":""}" data-a="serv" data-n="${o}">${servingsLabel(o)}</button>`).join("")}
         <input class="inp" id="servc" type="number" inputmode="decimal" step="0.25" min="0" style="width:90px;padding:8px 10px" placeholder="other" value="${opts.includes(n)?"":n}"></div>
-      <div class="totals" style="margin-top:8px"><div><b>${fmtNum(f.kcal*n)}</b><span class="small muted">cal</span></div><div><b>${r0(f.p*n)}g</b><span class="small muted">protein</span></div><div><b>${r0(f.c*n)}g</b><span class="small muted">carbs</span></div><div><b>${r0(f.f*n)}g</b><span class="small muted">fat</span></div></div>
+      <div class="totals" id="ptotals" style="margin-top:8px"><div><b>${fmtNum(f.kcal*n)}</b><span class="small muted">cal</span></div><div><b>${r0(f.p*n)}g</b><span class="small muted">protein</span></div><div><b>${r0(f.c*n)}g</b><span class="small muted">carbs</span></div><div><b>${r0(f.f*n)}g</b><span class="small muted">fat</span></div></div>
     </div>
     <div class="grid2" style="margin-bottom:14px">
       <label class="field" style="margin:0"><span>Meal</span><select class="inp" id="pmeal">${MEALS.map(([k,l])=>`<option value="${k}" ${st.meal===k?"selected":""}>${l}</option>`).join("")}</select></label>
       <label class="field" style="margin:0"><span>Time</span><input class="inp" id="ptime" type="time" value="${st.time||nowTime()}"></label>
     </div>
-    <button class="btn" style="width:100%" data-a="logpick">Add to ${MEALS.find(m=>m[0]===st.meal)[1]} · ${fmtNum(f.kcal*n)} cal</button>`);
+    <button class="btn" style="width:100%" data-a="logpick" id="plog">Add to ${MEALS.find(m=>m[0]===st.meal)[1]} · ${fmtNum(f.kcal*n)} cal</button>`);
 }
 function logFood(f, servings, meal, time){
   const e = {id:uid(), date:day, time, ts:tsOf(day,time), meal, name:f.name, foodKey:f.key, serving:f.serving, servings,
@@ -1148,6 +1154,8 @@ document.addEventListener("click", async ev => {
     case "startscan": sheetState.scanning=true; sheetState.scanMsg=""; drawAdd(); break;
     case "stopscan": stopScanner(); sheetState.scanning=false; sheetState.scanSlow=false; drawAdd(); break;
     case "lookup": { const v=$("#bcode").value; if(v.trim()) lookupBarcode(v); break; }
+    case "feelgoodquick": { const c={id:uid(),date:today(),time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);
+      const g=addXP(XP_CHECK); save(); celebrate(g); toast(`Yay! Good day logged${g?` · +${g} 🥕`:""}`); break; }
     case "feelgood": { const c={id:uid(),date:day,time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);
       const g = day===today()?addXP(XP_CHECK):0; save(); closeLayer(); celebrate(g); toast(`Yay! Good day logged${g?` · +${g} 🥕`:""}`); break; }
     case "savecheck": {
@@ -1203,6 +1211,10 @@ document.addEventListener("input", ev => {
   const t = ev.target;
   if(t.id==="q"){ sheetState.q = t.value; $("#results").innerHTML = resultsHTML(); }
   else if(t.id==="browseq"){ browse.q = t.value; $("#browselist").innerHTML = browseList(); }
+  else if(t.id==="servc" && sheetState && sheetState.pick){ const v=parseFloat(t.value), f=sheetState.pick;
+    if(v>0 && v<=20){ sheetState.servings=v; document.querySelectorAll('[data-a="serv"]').forEach(b=>b.classList.remove("on"));
+      $("#ptotals").innerHTML = `<div><b>${fmtNum(f.kcal*v)}</b><span class="small muted">cal</span></div><div><b>${r0(f.p*v)}g</b><span class="small muted">protein</span></div><div><b>${r0(f.c*v)}g</b><span class="small muted">carbs</span></div><div><b>${r0(f.f*v)}g</b><span class="small muted">fat</span></div>`;
+      $("#plog").textContent = `Add to ${MEALS.find(m=>m[0]===($("#pmeal").value||sheetState.meal))[1]} · ${fmtNum(f.kcal*v)} cal`; } }
   else if(t.id==="eserv"){ const e=S.entries.find(x=>x.id===sheetState.id); const v=parseFloat(t.value); $("#etotal").textContent = v>0 ? `Total: ${fmtNum(e.kcal*v)} cal · P${r0(e.p*v)} C${r0(e.c*v)} F${r0(e.f*v)}` : "Total: –"; }
   else if(t.dataset.s){ const v=+t.value; sheetState.c[t.dataset.s] = v; const pill=$("#v-"+t.dataset.s); pill.textContent = feelEmoji(v)+" "+v; pill.style.background = sevColor(v); }
 });
@@ -1210,8 +1222,8 @@ document.addEventListener("change", ev => {
   const t = ev.target;
   if(t.id==="bcphoto" && t.files[0]) scanPhoto(t.files[0]);
   if(t.id==="importfile2" && t.files[0]){ const r=new FileReader(); r.onload=()=>importBackup(r.result); r.readAsText(t.files[0]); }
-  if(t.id==="servc" && sheetState && sheetState.pick){ const v=parseFloat(t.value); if(v>0){ sheetState.servings=v; sheetState.meal=$("#pmeal").value; sheetState.time=$("#ptime").value; drawPortion(); } }
-  if(t.id==="pmeal" && sheetState){ sheetState.meal=t.value; if(sheetState.pick){ sheetState.time=$("#ptime").value; const cv=parseFloat($("#servc").value); if(cv>0) sheetState.servings=cv; drawPortion(); } }
+
+  if(t.id==="pmeal" && sheetState){ sheetState.meal=t.value; if(sheetState.pick && $("#plog")){ const f=sheetState.pick; $("#plog").textContent = `Add to ${MEALS.find(m=>m[0]===t.value)[1]} · ${fmtNum(f.kcal*sheetState.servings)} cal`; } }
   if(["sname","tk","tp","tc","tf"].includes(t.id)){ saveSettingsFields(); }
   if(t.id==="cname" && sheetState && sheetState.customDraft){ const d=readCustomForm(); const g=classifyText(d.name+" "+(d.ingredients||"")); if(!d.icTouched){ d.ic=g.ic; d.dairy=g.dairy; } patchCustom(); }
 });

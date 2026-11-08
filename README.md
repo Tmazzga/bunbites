@@ -41,6 +41,14 @@ Edit the files, bump `VERSION` in `sw.js`, and re-upload. She'll get the new ver
 ## Test locally
 `python3 -m http.server 8000` in this folder, then open http://localhost:8000.
 
+## Automated tests
+16 end-to-end tests (logging, editing, swipe-delete, barcode + cache, restore of bad backups, a year of data, evening nudge) plus a trigger-detection accuracy check. They run automatically on every push (GitHub → Actions tab). To run them yourself:
+```
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+python -m pytest tests -q
+```
+
 ## Notes
 - Built-in calories are typical estimates. Scanned products use Open Food Facts label data.
 - IC ratings follow the ICA / IC Network food lists. Personal "safe"/"trigger" marks override them.
