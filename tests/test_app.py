@@ -169,3 +169,47 @@ def test_flare_day_gentle_picks(page):
     assert state(page)["entries"] == []
     page.click('[data-a="flare"]')
     assert page.locator('[data-a="gpick"]').count() == 0
+
+
+def test_rate_any_food_three_ways(page):
+    start(page)
+    # green tea is "Caution" on the IC list, but it doesn't bother her
+    page.click('[data-a="add"] >> nth=0'); page.fill("#q", "green tea"); page.click('#results [data-a="pick"] >> nth=0')
+    page.click('.ratebtns [data-m="safe"]')
+    assert state(page)["marks"]["green tea"] == "safe"
+    assert "Fine for me" in page.locator(".sheet").inner_text()
+    page.click('[data-a="logpick"]'); page.keyboard.press("Escape")
+    # shows as gentle everywhere: green dot, flare search, flare picks
+    assert page.locator('.swipe .dot.F').count() == 1
+    page.click('[data-a="flare"]')
+    assert any("Green tea" in t for t in page.locator('[data-a="gpick"]').all_inner_texts())
+    # "Sometimes" rating for a list-friendly food, then back to list rating
+    page.evaluate("S.settings.flare=false; save(); render();")
+    page.click('[data-a="nav"][data-v="foods"]'); page.fill("#browseq", "banana")
+    page.click('#browselist [data-a="foodinfo"] >> nth=0'); page.click('.ratebtns [data-m="try"]')
+    assert state(page)["marks"]["banana"] == "try"
+    assert page.evaluate("effectiveIC('F','Banana')") == "T"
+    page.click('.linkbtn'); assert "banana" not in state(page)["marks"]
+
+
+def test_edit_builtin_food_and_reset(page):
+    start(page)
+    page.click('[data-a="nav"][data-v="foods"]'); page.fill("#browseq", "bagel")
+    page.click('#browselist [data-a="foodinfo"] >> nth=0'); page.click('[data-a="editpreset"]')
+    page.fill("#pvserv", "1 Thomas' bagel"); page.fill("#pvk", "250"); page.click('[data-a="pvdairy"]'); page.click('[data-a="pvsave"]')
+    o = state(page)["overrides"]["db:bagel, plain"]
+    assert o["kcal"] == 250 and o["serving"] == "1 Thomas' bagel" and o["dairy"] is True
+    page.click('[data-a="nav"][data-v="today"]'); log_food(page, "bagel")
+    assert state(page)["entries"][0]["kcal"] == 250
+    page.click('[data-a="nav"][data-v="foods"]'); page.fill("#browseq", "bagel")
+    page.click('#browselist [data-a="foodinfo"] >> nth=0'); page.click('[data-a="editpreset"]'); page.click('[data-a="pvreset"]')
+    assert "db:bagel, plain" not in state(page)["overrides"]
+    assert state(page)["entries"][0]["kcal"] == 250, "past logs keep the numbers they were logged with"
+
+
+def test_my_ratings_list_includes_non_preset_foods(page):
+    start(page)
+    page.evaluate("S.marks['mom\\'s lasagna']='trigger'; S.marks['white rice']='safe'; save();")
+    page.click('[data-a="nav"][data-v="foods"]')
+    txt = page.locator(".card", has_text="My ratings").inner_text()
+    t = txt.lower(); assert "mom's lasagna" in t and "white rice" in t and "bothers me" in t

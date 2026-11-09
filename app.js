@@ -29,7 +29,7 @@ const ACCESSORIES = [
 /* ---------------- state ---------------- */
 function freshState(){
   return {version:1, petName:"", createdAt:Date.now(), entries:[], checkins:[], custom:[], favorites:[], marks:{},
-    settings:{targetsOn:false,kcal:2000,p:100,c:225,f:65,flare:false,theme:"auto"}, xpByDate:{}, equipped:[], seenUnlocks:[], meals:[], lastBackup:0, backupSnooze:0};
+    settings:{targetsOn:false,kcal:2000,p:100,c:225,f:65,flare:false,theme:"auto"}, xpByDate:{}, equipped:[], seenUnlocks:[], meals:[], overrides:{}, lastBackup:0, backupSnooze:0};
 }
 function sanitize(d){
   const f = freshState(), arr = x => Array.isArray(x) ? x : [], obj = x => x && typeof x==="object" && !Array.isArray(x) ? x : {};
@@ -48,7 +48,7 @@ function sanitize(d){
     return x; });
   out.custom = arr(out.custom).filter(c => c && c.key && c.name); out.favorites = arr(out.favorites).filter(k => typeof k==="string");
   out.meals = arr(out.meals).filter(m => m && m.name && Array.isArray(m.items)); out.equipped = arr(out.equipped); out.seenUnlocks = arr(out.seenUnlocks);
-  out.marks = obj(out.marks); out.xpByDate = obj(out.xpByDate); out.petName = String(out.petName || "").slice(0, 20);
+  out.marks = obj(out.marks); out.overrides = obj(out.overrides); out.xpByDate = obj(out.xpByDate); out.petName = String(out.petName || "").slice(0, 20);
   return out;
 }
 let S = freshState();
@@ -108,7 +108,10 @@ const CAT_STARTS = {"Water":"Drinks","Banana":"Fruit","Broccoli":"Veggies & bean
 const FOOD_CATS = Object.values(CAT_STARTS);
 let _cat = "Drinks";
 const BUILTIN = FOOD_ROWS.map(r => (_cat = CAT_STARTS[r[0]] || _cat, {cat:_cat, key:"db:"+r[0].toLowerCase(), name:r[0], serving:r[1], kcal:r[2], p:r[3], c:r[4], f:r[5], ic:r[6], dairy:!!r[7], soothe:!!r[8], kw:(r[9]||"").toLowerCase(), src:"db"}));
-function allFoods(){ return S.custom.map(c => Object.assign({src:"custom", kw:""}, c)).concat(BUILTIN); }
+// her edits to built-in foods (serving, calories, macros, dairy) sit on top of the originals
+function withOv(f){ const o = S.overrides && S.overrides[f.key]; return o ? Object.assign({}, f, o, {edited:true}) : f; }
+function builtins(){ return BUILTIN.map(withOv); }
+function allFoods(){ return S.custom.map(c => Object.assign({src:"custom", kw:""}, c)).concat(builtins()); }
 function foodByKey(k){ return allFoods().find(f => f.key===k); }
 function markOf(nameOrKey){ return S.marks[(nameOrKey||"").toLowerCase()]; }
 function nameKey(name){ return (name||"").trim().toLowerCase(); }
@@ -125,7 +128,7 @@ function classifyText(text){
 function searchFoods(q){
   q = q.trim().toLowerCase();
   let list = allFoods();
-  if(S.settings.flare) list = list.filter(f => f.ic==="F" && markOf(f.name)!=="trigger" || markOf(f.name)==="safe");
+  if(S.settings.flare) list = list.filter(f => effectiveIC(f.ic, f.name)==="F");
   if(!q) return list.slice(0, 60);
   const words = q.split(/\s+/);
   const freq = {}; S.entries.forEach(e=>{ const k=nameKey(e.name); freq[k]=(freq[k]||0)+1; });
@@ -144,13 +147,22 @@ function searchFoods(q){
   }
   return scored.sort((a,b)=>b[0]-a[0]).map(x=>x[1]).slice(0,60);
 }
+const MY_RATINGS = [["safe","💚","Fine for me"],["try","🟡","Sometimes"],["trigger","🚩","Bothers me"]];
 function icBadge(ic, name){
   const m = markOf(name);
-  if(m==="safe") return `<span class="b safe">My safe food</span>`;
-  if(m==="trigger") return `<span class="b trig">My trigger</span>`;
+  if(m==="safe") return `<span class="b safe">💚 Fine for me</span>`;
+  if(m==="try") return `<span class="b mytry">🟡 Sometimes for me</span>`;
+  if(m==="trigger") return `<span class="b trig">🚩 Bothers me</span>`;
   return `<span class="b ${ic}">${IC_LABEL[ic]||"Not rated"}</span>`;
 }
-function effectiveIC(ic, name){ const m=markOf(name); return m==="safe"?"F":m==="trigger"?"C":ic; }
+function effectiveIC(ic, name){ const m=markOf(name); return m==="safe"?"F":m==="try"?"T":m==="trigger"?"C":ic; }
+// the "how does this food treat you?" picker, used everywhere a food is shown
+function ratingPicker(name, ic, title="How does this food treat you?"){
+  const m = markOf(name);
+  return `<div class="card rate"><h3>${title}</h3>
+    <div class="ratebtns">${MY_RATINGS.map(([k,e,l])=>`<button class="${m===k?"on":""} r-${k}" data-a="markname" data-name="${esc(name)}" data-m="${k}"><span>${e}</span>${l}</button>`).join("")}</div>
+    <p class="small muted" style="margin:8px 0 0">${m?`Your rating beats the IC list (list says <b>${IC_LABEL[ic]||"not rated"}</b>). <button class="linkbtn" data-a="markname" data-name="${esc(name)}" data-m="">Use the list rating</button>`:`Using the IC list rating: <b>${IC_LABEL[ic]||"not rated"}</b>. Everyone's different, so pick what's true for you.`}</p></div>`;
+}
 function badges(f){
   return icBadge(f.ic, f.name) + (f.dairy?` <span class="b milk">Dairy</span>`:"") + (f.soothe && f.ic==="F" && S.settings.flare?` <span class="b soothe">Soothing</span>`:"");
 }
@@ -382,7 +394,7 @@ function sevColor(n){ return n<=1?"#9fd3b0":n<=3?"#cfe3a6":n<=5?"#f6cf8c":n<=7?"
 // Flare-day suggestions: her own safe foods first, then gentle foods she eats a lot, then soothing staples.
 let gentlePicks = [], gentleMeals = [];
 function computeGentle(){
-  const gentle = f => f && markOf(f.name)!=="trigger" && (markOf(f.name)==="safe" || f.ic==="F");
+  const gentle = f => f && effectiveIC(f.ic, f.name)==="F";
   const seen = new Set(), picks = [];
   const add = f => { const k = nameKey(f.name); if(!seen.has(k) && gentle(f) && picks.length < 6){ seen.add(k); picks.push(f); } };
   const byName = n => allFoods().find(f=>nameKey(f.name)===n) || (()=>{ const e = S.entries.slice().reverse().find(x=>nameKey(x.name)===n); return e ? entryAsFood(e) : null; })();
@@ -392,7 +404,7 @@ function computeGentle(){
   Object.entries(freq).sort((a,b)=>b[1]-a[1]).forEach(([n,c])=>{ if(c>=2){ const f = byName(n); if(f) add(f); } });
   // soothing staples (skip dairy, she's dairy-sensitive): rotate through food groups, at most one drink
   const order = ["Grains & bread","Protein & nuts","Veggies & beans","Fruit","Meals & takeout","Snacks & sweets","Drinks"];
-  const pools = order.map(c => BUILTIN.filter(f=>f.cat===c && f.soothe && f.ic==="F" && !f.dairy && f.name!=="Water"));
+  const pools = order.map(c => builtins().filter(f=>f.cat===c && f.soothe && effectiveIC(f.ic,f.name)==="F" && !f.dairy && f.name!=="Water"));
   const offset = new Date().getDate();   // vary the picks a little day to day
   pools.forEach(p => p.push(...p.splice(0, offset % Math.max(1,p.length))));
   let drinks = picks.filter(f=>(f.cat||"")==="Drinks").length;
@@ -421,6 +433,7 @@ function renderFoods(){
   return `<div class="top"><h1>Foods</h1><button class="iconbtn" data-a="settings" aria-label="Settings">⚙️</button></div>
   <details class="infobox"><summary><span>ⓘ How the ratings work</span><span>⌄</span></summary>
     <p>Bladder ratings come from the IC food lists (Interstitial Cystitis Association / IC Network). Everyone's different, so tap any food to mark it as <b>your</b> safe food or trigger, and your mark beats the list. Calories are typical estimates; scanned labels are exact.</p></details>
+  ${myRatingsCard()}
   ${favs.length?`<div class="card"><h2>⭐ Saved foods <span class="fcount">${favs.length}</span></h2>${favs.map(foodRow).join("")}</div>`:""}
   ${S.custom.length?`<div class="card"><h2>🧁 My custom & scanned <span class="fcount">${S.custom.length}</span></h2>${S.custom.map(foodRow).join("")}</div>`:""}
   <button class="btn soft" style="width:100%;margin-bottom:14px" data-a="customnew">＋ Make a custom food</button>
@@ -431,9 +444,17 @@ function renderFoods(){
     <div id="browselist">${browseList()}</div>
   </div>`;
 }
+function myRatingsCard(){
+  const marks = Object.entries(S.marks); 
+  if(!marks.length) return `<div class="card"><h2>💚🚩 My ratings</h2><p class="small muted" style="margin:0">The IC list is a starting point. Tap any food below, or any food you log, and choose <b>💚 Fine for me</b>, <b>🟡 Sometimes</b> or <b>🚩 Bothers me</b>. Your rating always wins.</p></div>`;
+  const lookup = n => allFoods().find(f=>nameKey(f.name)===n) || (()=>{ const e = S.entries.slice().reverse().find(x=>nameKey(x.name)===n); return e ? entryAsFood(e) : {name:n, ic:"U", key:""}; })();
+  const groups = MY_RATINGS.map(([k,e,l]) => [k,e,l, marks.filter(([,m])=>m===k).map(([n])=>lookup(n))]).filter(g=>g[3].length);
+  return `<div class="card"><h2>💚🚩 My ratings <span class="fcount">${marks.length}</span></h2>
+    ${groups.map(([k,e,l,fs])=>`<div class="sec-h">${e} ${l}<span class="fcount">${fs.length}</span></div>${fs.map(f=>`<button class="item" ${f.key?`data-a="foodinfo" data-key="${esc(f.key)}"`:`data-a="rateonly" data-name="${esc(f.name)}"`}><span class="t"><b>${esc(f.name)}</b><span class="small muted">IC list says ${IC_LABEL[f.ic]||"not rated"}</span></span><span class="chev">›</span></button>`).join("")}`).join("")}</div>`;
+}
 function browseList(){
   const q = browse.q, ic = browse.ic, cat = browse.cat && browse.cat!=="All" ? browse.cat : null;
-  let list = q ? searchFoods(q) : BUILTIN.slice();
+  let list = q ? searchFoods(q) : builtins();
   if(cat) list = list.filter(f=>f.cat===cat);
   if(ic==="milk") list = list.filter(f=>!f.dairy); else if(ic) list = list.filter(f=>effectiveIC(f.ic,f.name)===ic);
   if(!list.length) return `<div class="empty">No matches</div>`;
@@ -662,7 +683,7 @@ function weekText(){
   if(A.groups.length) lines.push("", "Possible trigger groups (pattern, not proof): " + A.groups.map(g=>`${g.label} (${pct(g.s.w)} vs ${pct(g.s.ref)})`).join(", "));
   if(A.foods.length) lines.push("Possible trigger foods: " + A.foods.map(s=>s.name).join(", "));
   const Dy = A.dairy; if(Dy.nW>=2 && Dy.nWo>=2) lines.push(`Dairy check: avg worst tummy ${Dy.avgGu[0].toFixed(1)}/10 on dairy days vs ${Dy.avgGu[1].toFixed(1)}/10 dairy-free`);
-  const marks = Object.entries(S.marks); if(marks.length){ lines.push("", "My triggers: " + (marks.filter(m=>m[1]==="trigger").map(m=>m[0]).join(", ")||"none"), "My safe foods: " + (marks.filter(m=>m[1]==="safe").map(m=>m[0]).join(", ")||"none")); }
+  const marks = Object.entries(S.marks); if(marks.length){ lines.push("", "My triggers: " + (marks.filter(m=>m[1]==="trigger").map(m=>m[0]).join(", ")||"none"), "My safe foods: " + (marks.filter(m=>m[1]==="safe").map(m=>m[0]).join(", ")||"none"), "Sometimes okay: " + (marks.filter(m=>m[1]==="try").map(m=>m[0]).join(", ")||"none")); }
   return lines.join("\n");
 }
 
@@ -786,6 +807,7 @@ function drawPortion(){
       <label class="field" style="margin:0"><span>Meal</span><select class="inp" id="pmeal">${MEALS.map(([k,l])=>`<option value="${k}" ${st.meal===k?"selected":""}>${l}</option>`).join("")}</select></label>
       <label class="field" style="margin:0"><span>Time</span><input class="inp" id="ptime" type="time" value="${st.time||nowTime()}"></label>
     </div>
+    ${ratingPicker(f.name, f.ic, "How does it treat you?")}
     <button class="btn" style="width:100%" data-a="logpick" id="plog">Add to ${MEALS.find(m=>m[0]===st.meal)[1]} · ${fmtNum(f.kcal*n)} cal</button>`);
 }
 function logFood(f, servings, meal, time){
@@ -1006,8 +1028,7 @@ function openEntry(id){
       </div>
       <label class="field" style="margin:12px 0 0"><span>Day</span><input class="inp" id="edate" type="date" max="${today()}" value="${e.date}"></label>
     </div>
-    <div class="card"><h3>Does this food bother you?</h3>
-      <div class="chips" style="margin-top:8px"><button class="chip ${m==="safe"?"on":""}" data-a="markname" data-name="${esc(e.name)}" data-m="safe">💚 My safe food</button><button class="chip ${m==="trigger"?"on":""}" data-a="markname" data-name="${esc(e.name)}" data-m="trigger">🚩 My trigger</button>${m?`<button class="chip" data-a="markname" data-name="${esc(e.name)}" data-m="">Clear</button>`:""}</div></div>
+    ${ratingPicker(e.name, e.ic)}
     <div class="row"><button class="btn danger" data-a="delentry">Delete</button><button class="btn" data-a="saveentry">Save</button></div>`);
 }
 
@@ -1018,16 +1039,40 @@ function openFoodInfo(key){
   const m = markOf(f.name);
   openSheet(`<div class="sheet-h"><h2>${esc(f.name)}</h2><button class="btn ghost sm" data-a="close">✕</button></div>
     <div style="margin-bottom:12px">${badges(f)} ${f.soothe?'<span class="b soothe">Often soothing</span>':""}</div>
-    <div class="card"><div class="small muted" style="font-weight:800;margin-bottom:8px">Per ${esc(f.serving)}${f.src==="db"?" (estimate)":""}</div>
+    <div class="card"><div class="small muted" style="font-weight:800;margin-bottom:8px">Per ${esc(f.serving)}${f.src==="db"?(f.edited?" (your numbers)":" (estimate)"):""}</div>
       <div class="totals"><div><b>${fmtNum(f.kcal)}</b><span class="small muted">cal</span></div><div><b>${r0(f.p)}g</b><span class="small muted">protein</span></div><div><b>${r0(f.c)}g</b><span class="small muted">carbs</span></div><div><b>${r0(f.f)}g</b><span class="small muted">fat</span></div></div></div>
-    <div class="card"><h3>For me, this food is…</h3>
-      <div class="chips" style="margin-top:8px"><button class="chip ${m==="safe"?"on":""}" data-a="markname" data-name="${esc(f.name)}" data-m="safe">💚 Safe</button><button class="chip ${m==="trigger"?"on":""}" data-a="markname" data-name="${esc(f.name)}" data-m="trigger">🚩 A trigger</button>${m?`<button class="chip" data-a="markname" data-name="${esc(f.name)}" data-m="">Use list rating</button>`:""}</div>
-      <p class="small muted" style="margin-bottom:0">List rating: ${IC_LABEL[f.ic]}</p></div>
+    ${ratingPicker(f.name, f.ic)}
     <div class="row">
       <button class="btn soft" data-a="fav" data-key="${esc(f.key)}">${S.favorites.includes(f.key)?"★ Saved":"☆ Save"}</button>
-      ${f.src==="custom"?`<button class="btn soft" data-a="editcustom" data-key="${esc(f.key)}">✏️ Edit</button><button class="btn danger" data-a="delcustom" data-key="${esc(f.key)}">Delete</button>`:""}
+      ${f.src==="custom"?`<button class="btn soft" data-a="editcustom" data-key="${esc(f.key)}">✏️ Edit</button><button class="btn danger" data-a="delcustom" data-key="${esc(f.key)}">Delete</button>`:`<button class="btn soft" data-a="editpreset" data-key="${esc(f.key)}">✏️ Edit</button>`}
       <button class="btn" data-a="logfrominfo" data-key="${esc(f.key)}">Log it</button>
     </div>`);
+}
+
+function openRateOnly(name, ic){
+  sheetState = {mode:"rate", name, ic};
+  openSheet(`<div class="sheet-h"><h2>${esc(name)}</h2><button class="btn ghost sm" data-a="close">✕</button></div>${ratingPicker(name, ic)}`);
+}
+/* edit a built-in food's numbers (her version sits on top; reset anytime) */
+function openPresetEdit(key){
+  const base = BUILTIN.find(b=>b.key===key); if(!base) return;
+  const f = withOv(base);
+  sheetState = {mode:"presetedit", key};
+  openSheet(`<div class="sheet-h"><h2>Edit ${esc(base.name)}</h2><button class="btn ghost sm" data-a="close">✕</button></div>
+    <div class="card">
+      <label class="field"><span>Serving size</span><input class="inp" id="pvserv" value="${esc(f.serving)}"></label>
+      <span class="small muted" style="font-weight:800">Per serving</span>
+      <div class="grid4" style="margin:6px 0 12px">
+        <label><span class="small muted">Cal</span><input class="inp" id="pvk" type="number" inputmode="decimal" value="${f.kcal}"></label>
+        <label><span class="small muted">Protein</span><input class="inp" id="pvp" type="number" inputmode="decimal" value="${f.p}"></label>
+        <label><span class="small muted">Carbs</span><input class="inp" id="pvc" type="number" inputmode="decimal" value="${f.c}"></label>
+        <label><span class="small muted">Fat</span><input class="inp" id="pvf" type="number" inputmode="decimal" value="${f.f}"></label>
+      </div>
+      <div class="setrow" style="padding:4px 0"><span><b>Contains dairy</b></span><button class="switch ${f.dairy?"on":""}" data-a="pvdairy" aria-label="Contains dairy" aria-pressed="${!!f.dairy}"></button></div>
+      ${f.edited?`<p class="small muted" style="margin:8px 0 0">Original: ${esc(base.serving)} · ${fmtNum(base.kcal)} cal · P${r0(base.p)} C${r0(base.c)} F${r0(base.f)}${base.dairy?" · dairy":""}</p>`:""}
+    </div>
+    ${ratingPicker(base.name, base.ic)}
+    <div class="row">${f.edited?`<button class="btn soft" data-a="pvreset">↺ Reset to original</button>`:""}<button class="btn" data-a="pvsave">Save</button></div>`);
 }
 
 /* settings */
@@ -1192,6 +1237,15 @@ document.addEventListener("click", async ev => {
       m.items.forEach(it=>{ g += logFood(Object.assign({}, it, {key: it.key || it.foodKey}), it.servings, meal, nowTime()); });
       const ids = S.entries.slice(before).map(e=>e.id); celebrate(g);
       toast(`Added ${m.name}${g?` · +${g} 🥕`:""}`, ()=>{ S.entries = S.entries.filter(e=>!ids.includes(e.id)); save(); render(); }); break; }
+    case "editpreset": openPresetEdit(el.dataset.key); break;
+    case "pvdairy": el.classList.toggle("on"); el.setAttribute("aria-pressed", el.classList.contains("on")); break;
+    case "pvsave": { const base = BUILTIN.find(b=>b.key===sheetState.key); if(!base) return;
+      const num = (id, max) => { const v = parseFloat($(id).value); return isFinite(v) ? Math.min(max, Math.max(0, Math.round(v*10)/10)) : 0; };
+      const o = {serving: $("#pvserv").value.trim() || base.serving, kcal:num("#pvk",5000), p:num("#pvp",500), c:num("#pvc",1000), f:num("#pvf",500), dairy: $('[data-a="pvdairy"]').classList.contains("on")};
+      const same = ["serving","kcal","p","c","f","dairy"].every(k => o[k]===base[k]);
+      if(same) delete S.overrides[base.key]; else S.overrides[base.key] = o;
+      save(); closeLayer(); render(); toast(same ? "No changes" : `${base.name} updated. Past logs keep their old numbers`); break; }
+    case "pvreset": { delete S.overrides[sheetState.key]; save(); openPresetEdit(sheetState.key); toast("Back to the original numbers"); break; }
     case "feelgoodquick": { const c={id:uid(),date:today(),time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);
       const g=addXP(XP_CHECK); save(); celebrate(g); toast(`Yay! Good day logged${g?` · +${g} 🥕`:""}`); break; }
     case "feelgood": { const c={id:uid(),date:day,time:nowTime(),pain:0,urgency:0,frequency:0,bloating:0,cramps:0,note:"",tags:[]}; c.ts=tsOf(c.date,c.time); S.checkins.push(c);
@@ -1210,8 +1264,9 @@ document.addEventListener("click", async ev => {
       e.ts=tsOf(e.date,e.time); save(); closeLayer(); render(); toast(moved?`Moved to ${(p=>/^(Today|Yesterday)$/.test(p)?p.toLowerCase():p)(prettyDate(e.date))}`:"Updated"); break; }
     case "delentry": { const e = S.entries.find(x=>x.id===sheetState.id); S.entries = S.entries.filter(x=>x.id!==sheetState.id); save(); closeLayer(); render(); toast(`${e.name} removed`, ()=>{ S.entries.push(e); save(); render(); }); break; }
     case "markname": { const k=nameKey(el.dataset.name), m=el.dataset.m; if(!m || S.marks[k]===m) delete S.marks[k]; else S.marks[k]=m; save();
-      toast(S.marks[k]==="safe"?"Marked as your safe food 💚":S.marks[k]==="trigger"?"Marked as your trigger 🚩":"Back to list rating"); refreshSheet(); render(); break; }
-    case "foodinfo": openFoodInfo(el.dataset.key); break;
+      toast(S.marks[k]==="safe"?"💚 Fine for you, so it'll show in flare-day picks":S.marks[k]==="try"?"🟡 Sometimes okay for you":S.marks[k]==="trigger"?"🚩 Marked as bothering you":"Back to the IC list rating"); refreshSheet(); render(); break; }
+    case "foodinfo": { const k = el.dataset.key; if(foodByKey(k)) openFoodInfo(k); else { const e = S.entries.slice().reverse().find(x=>x.foodKey===k || ("e:"+nameKey(x.name))===k); if(e) openRateOnly(e.name, e.ic); } break; }
+    case "rateonly": openRateOnly(el.dataset.name, "U"); break;
     case "logfrominfo": { const f=foodByKey(el.dataset.key); if(!f){ closeLayer(); render(); return; } day=today(); view="today"; render(); sheetState={mode:"add",tab:"search",meal:guessMeal(),q:"",pick:f,servings:1}; drawAdd(); break; }
     case "delcustom": { const k=el.dataset.key; S.custom=S.custom.filter(c=>c.key!==k); S.favorites=S.favorites.filter(x=>x!==k); save(); closeLayer(); render(); toast("Food deleted. Past logs keep it"); break; }
     case "browseic": { browse.ic = browse.ic===el.dataset.ic ? null : el.dataset.ic; $("#browselist").innerHTML = browseList(); document.querySelectorAll('[data-a="browseic"]').forEach(b=>b.classList.toggle("on", b.dataset.ic===browse.ic)); break; }
@@ -1237,7 +1292,10 @@ document.addEventListener("click", async ev => {
 });
 function refreshSheet(){
   if(!sheetState) return;
+  if(sheetState.mode==="add" && sheetState.pick){ const cv = $("#servc") && parseFloat($("#servc").value); if(cv>0) sheetState.servings = cv; if($("#pmeal")) sheetState.meal=$("#pmeal").value; if($("#ptime")) sheetState.time=$("#ptime").value; drawPortion(); return; }
   if(sheetState.mode==="add") drawAdd();
+  else if(sheetState.mode==="presetedit") openPresetEdit(sheetState.key);
+  else if(sheetState.mode==="rate") openRateOnly(sheetState.name, sheetState.ic);
   else if(sheetState.mode==="entry") openEntry(sheetState.id);
   else if(sheetState.mode==="info") openFoodInfo(sheetState.key);
 }

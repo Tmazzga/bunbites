@@ -311,6 +311,16 @@ nav button.on::after{content:"";position:absolute;bottom:-2px;left:50%;width:18p
 .sheet-h .star{font-size:24px}
 
 /* ---- v5 fixes ---- */
+.b.mytry{background:#fbe7b5;color:#7a4e0c}
+[data-theme=dark] .b.mytry{background:#4a3a14;color:#f2c96b}
+.ratebtns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.ratebtns button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px;border-radius:14px;border:2px solid var(--line);background:var(--card);font-weight:800;font-size:13px;color:var(--ink)}
+.ratebtns button span{font-size:22px}
+.ratebtns button.on.r-safe{background:var(--ok-l);border-color:#6fb187}
+.ratebtns button.on.r-try{background:#fbe7b5;border-color:#e0a83a}
+.ratebtns button.on.r-trigger{background:var(--bad-l);border-color:#d0475a}
+[data-theme=dark] .ratebtns button.on.r-try{background:#4a3a14}
+.linkbtn{color:var(--pink-d);font-weight:800;text-decoration:underline;padding:0;font-size:inherit}
 .gentle{background:linear-gradient(135deg,var(--lilac-l),var(--card) 70%);border:2px solid var(--line)}
 .chip.gpick{background:var(--card);min-height:40px}
 .swipe{position:relative;border-radius:12px;background:var(--bad);overflow:hidden}
