@@ -59,7 +59,7 @@ def test_swipe_left_deletes(page):
       el.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,touches:[t(x)]}));
       for(const d of [20,80,160]) el.dispatchEvent(new TouchEvent('touchmove',{bubbles:true,touches:[t(x-d)]}));
       el.dispatchEvent(new TouchEvent('touchend',{bubbles:true,touches:[]}));}""", [x, y])
-    page.wait_for_timeout(350)
+    page.wait_for_function("JSON.parse(localStorage.getItem('bunbites.v1')).entries.length === 0", timeout=5000)
     assert state(page)["entries"] == []
     assert page.locator(".sheet").count() == 0
 
