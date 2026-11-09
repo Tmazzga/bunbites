@@ -52,15 +52,15 @@ def test_edit_move_and_delete_with_undo(page):
 def test_swipe_left_deletes(page):
     start(page)
     log_food(page, "banana")
-    page.locator(".swipe .item").first.scroll_into_view_if_needed()
-    box = page.locator(".swipe .item").first.bounding_box()
-    x, y = box["x"] + box["width"] - 30, box["y"] + box["height"] / 2
-    page.evaluate("""([x,y])=>{const el=document.elementFromPoint(x,y);const t=(xx)=>new Touch({identifier:1,target:el,clientX:xx,clientY:y});
-      el.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,touches:[t(x)]}));
-      for(const d of [20,80,160]) el.dispatchEvent(new TouchEvent('touchmove',{bubbles:true,touches:[t(x-d)]}));
-      el.dispatchEvent(new TouchEvent('touchend',{bubbles:true,touches:[]}));}""", [x, y])
+    row = page.locator(".swipe .item").first
+    row.evaluate("el => el.scrollIntoView({block: 'center'})")
+    # swipe the row element itself (screen coordinates vary with fonts on different machines)
+    row.evaluate("""el => { const r = el.getBoundingClientRect(), y = r.top + r.height/2, x = r.right - 30;
+      const t = xx => new Touch({identifier: 1, target: el, clientX: xx, clientY: y});
+      el.dispatchEvent(new TouchEvent('touchstart', {bubbles: true, touches: [t(x)]}));
+      for (const d of [20, 80, 160]) el.dispatchEvent(new TouchEvent('touchmove', {bubbles: true, touches: [t(x - d)]}));
+      el.dispatchEvent(new TouchEvent('touchend', {bubbles: true, touches: []})); }""")
     page.wait_for_function("JSON.parse(localStorage.getItem('bunbites.v1')).entries.length === 0", timeout=5000)
-    assert state(page)["entries"] == []
     assert page.locator(".sheet").count() == 0
 
 
